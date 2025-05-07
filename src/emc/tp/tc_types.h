@@ -171,7 +171,9 @@ typedef struct {
     int optimization_state;             // At peak velocity during blends)
     int on_final_decel;
     int blend_prev;
-    int accel_mode;
+    int accel_mode;			//TC_JERK_LIMITED
+							//TC_ACCEL_RAMP
+
     int splitting;          // the segment is less than 1 cycle time
                             // away from the end.
     int remove;             // Flag to remove the segment from the queue
