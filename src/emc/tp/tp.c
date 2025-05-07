@@ -2500,8 +2500,7 @@ STATIC int tpCalculateRampAccel(TP_STRUCT const * const tp,
     return TP_ERR_OK;
 }
 
-STATIC int tpGetAccState(TP_STRUCT const * const tp, 
-		TC_STRUCT * const tc, double maxJerk, double maxAcc, double maxVel){
+STATIC int tpGetAccState(TC_STRUCT * const tc, double maxJerk, double maxAcc, double maxVel){
 		
 		//get current position in a segment and segment length
 		double pos = tc->progress;
@@ -2547,7 +2546,7 @@ STATIC int tpGetAccState(TP_STRUCT const * const tp,
 		double s4 = s3 + s_vmax;
 		double s5 = s4 + s_j;
 		double s6 = s5 + s_amax;
-		double s7 = s6 + s_j;
+		//double s7 = s6 + s_j;
 		
 		//set acceleration state relative to position in the segment
 		if(pos <= s1){			//S1 - jerk-up to max acceleration
@@ -2588,7 +2587,7 @@ STATIC int tpCalculateJerkAccel(TP_STRUCT const * const tp,
 	double dt = fmax(tc->cycle_time, TP_TIME_EPSILON);
 	
     //set acceleration and jerk parameter, depending on the acceleration state
-	int accState = tpGetAccState(tp, tc, maxJerk, maxAcc, maxVel);
+	int accState = tpGetAccState(tc, maxJerk, maxAcc, maxVel);
 	double jerk = 0;	//system jerk limit, either zero or from tp (fixed to 35 for now)
 	
 	switch(accState){
@@ -3009,7 +3008,7 @@ STATIC tp_err_t tpActivateSegment(TP_STRUCT * const tp, TC_STRUCT * const tc) {
         tp_debug_print("segment_time = %f, cutoff_time = %f, ramping\n",
                 segment_time, cutoff_time);
         tc->accel_mode = TC_ACCEL_RAMP;
-    }else{tc->accel_mode = TC_JERK_LIMITED;}
+    }else{tc->accel_mode = TC_ACCEL_JERK;}
 
     // Do at speed checks that only happen once
     int needs_atspeed = tc->atspeed ||
@@ -3214,7 +3213,7 @@ STATIC int tpUpdateCycle(TP_STRUCT * const tp,
     double acc=0, vel_desired=0;
 	
 	//use jerk limited motion first, if returns a fail, fall back to trapizoidal
-	if (tc->accel_mode = TC_JERK_LIMITED){
+	if (tc->accel_mode = TC_ACCEL_JERK){
 		res_accel = tpCalculateJerkAccel(tp, tc, nexttc, &acc, &vel_desired);
 	}
 

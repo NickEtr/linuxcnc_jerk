@@ -55,6 +55,7 @@ typedef enum {
 
 #define TC_ACCEL_TRAPZ 0
 #define TC_ACCEL_RAMP 1
+#define TC_ACCEL_JERK 2
 
 /**
  * Spiral arc length approximation by quadratic fit.
@@ -137,7 +138,9 @@ typedef struct {
     //Acceleration
     double maxaccel;        // accel calc'd by task
     double acc_ratio_tan;// ratio between normal and tangential accel
-	double accState;			//state of an S-curve profile
+	
+	//Jerk
+	int accState;			//state of an S-curve profile
     
     int id;                 // segment's serial number
     struct state_tag_t tag; // state tag corresponding to running motion
@@ -172,8 +175,7 @@ typedef struct {
     int optimization_state;             // At peak velocity during blends)
     int on_final_decel;
     int blend_prev;
-    int accel_mode;			//TC_JERK_LIMITED
-							//TC_ACCEL_RAMP
+    int accel_mode;			//stores acceleration mode|TC_ACCEL_TRAPEZ = 0 | TC_ACCEL_RAMP = 1 |TC_ACCEL_JERK = 2
 
     int splitting;          // the segment is less than 1 cycle time
                             // away from the end.
