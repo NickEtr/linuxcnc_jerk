@@ -2582,7 +2582,7 @@ STATIC int tpCalculateJerkAccel(TP_STRUCT const * const tp,
 	//double maxJerk = tp->maxJerk;
 	double maxJerk = 35.0;	//hardcoded prototype
 	double maxAcc = tcGetTangentialMaxAccel(tc);
-	double maxVel = tpGetRealTargetVel(tp, tc);
+	double maxVel = tpGetRealFinalVel(tp, tc, nexttc);
 	
 	//get cycle time
 	double dt = fmax(tc->cycle_time, TP_TIME_EPSILON);
@@ -2611,7 +2611,7 @@ STATIC int tpCalculateJerkAccel(TP_STRUCT const * const tp,
 	if(*vel_desired < 0){*vel_desired = 0;}
 	
 	//for harvesting data only
-	rtapi_print_msg(RTAPI_MSG_ERR, "dt: %.3f accState: %d maxJerk: %.3f acc: %.3f velocity: %.3f\n", dt, accState, maxJerk, *acc, *vel_desired);
+	rtapi_print_msg(RTAPI_MSG_ERR, "progress: %.3f dt: %.3f accState: %d maxJerk: %.3f acc: %.3f velocity: %.3f\n", tc->progress, dt, accState, maxJerk, *acc, *vel_desired);
 	
 	return TP_ERR_OK;
 }
