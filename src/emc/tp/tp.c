@@ -2611,7 +2611,8 @@ STATIC int tpCalculateJerkAccel(TP_STRUCT const * const tp,
 	if(*vel_desired < 0){*vel_desired = 0;}
 	
 	//for harvesting data only
-	rtapi_print_msg(RTAPI_MSG_ERR, "progress: %.3f dt: %.3f accState: %d maxJerk: %.3f acc: %.3f velocity: %.3f\n", tc->progress, dt, accState, maxJerk, *acc, *vel_desired);
+	double distanceToGo = tcGetDistanceToGo(tc, tp->reverse_run);
+	rtapi_print_msg(RTAPI_MSG_ERR, "progress: %.3f distanceToGo: %.3f dt: %.3f accState: %d maxJerk: %.3f acc: %.3f velocity: %.3f\n", tc->progress, distanceToGo,dt, accState, maxJerk, *acc, *vel_desired);
 	
 	return TP_ERR_OK;
 }
