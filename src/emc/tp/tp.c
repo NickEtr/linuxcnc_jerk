@@ -2505,7 +2505,7 @@ STATIC int tpGetAccState(TC_STRUCT * const tc, double maxJerk, double maxAcc, do
 		//get current position in a segment and segment length
 		double pos = tc->progress;
 		double length = tc->target;
-		rtapi_print_msg(RTAPI_MSG_ERR, "maxJerk: %.3f\n", maxJerk);
+		
 		
 		//failsafe
 		if (maxJerk <= 0 || maxAcc <= 0 || maxVel <= 0){
@@ -2580,7 +2580,7 @@ STATIC int tpCalculateJerkAccel(TP_STRUCT const * const tp,
 
 	//get trajectory limits
 	//double maxJerk = tp->maxJerk;
-	double maxJerk = 35;	//hardcoded prototype
+	double maxJerk = 35.0;	//hardcoded prototype
 	double maxAcc = tcGetTangentialMaxAccel(tc);
 	double maxVel = tpGetRealFinalVel(tp, tc, nexttc);
 	
@@ -2608,6 +2608,9 @@ STATIC int tpCalculateJerkAccel(TP_STRUCT const * const tp,
 	
 	*vel_desired = saturate(*vel_desired + (*acc)*dt, maxVel);
 	if(*vel_desired < 0){*vel_desired = 0;}
+	
+	//for harvesting data only
+	rtapi_print_msg(RTAPI_MSG_ERR, "dt: %.3f accState: %d maxJerk: %.3f acc: %.3f velocity: %.3f\n", dt, accState, maxJerk, *acc, *vel_desired);
 	
 	return TP_ERR_OK;
 }
