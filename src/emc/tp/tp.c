@@ -2505,10 +2505,11 @@ STATIC int tpGetAccState(TC_STRUCT * const tc, double maxJerk, double maxAcc, do
 		//get current position in a segment and segment length
 		double pos = tc->progress;
 		double length = tc->target;
+		rtapi_print_msg(RTAPI_MSG_ERR, "maxJerk: %.3f\n", maxJerk);
 		
 		//failsafe
-		if (maxJerk <= 0 || maxAcc <= 0 || maxVel <= 0 || length <= 0){
-			rtapi_print_msg(RTAPI_MSG_ERR, "tpGetAccState:Bad input");
+		if (maxJerk <= 0 || maxAcc <= 0 || maxVel <= 0){
+			rtapi_print_msg(RTAPI_MSG_ERR, "tpGetAccState:Bad input: maxJerk: %.3f maxAcc: %.3f maxVel: %.3f\n", maxJerk, maxAcc, maxVel);
 			return TP_ERR_FAIL;
 		}
 		
