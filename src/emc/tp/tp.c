@@ -2536,7 +2536,7 @@ STATIC int tpGetAccState(TC_STRUCT * const tc, double maxJerk, double maxAcc, do
 		
 		//if all distances are too small, return an error, fall back to trapizoidal
 		if(s_vmax < dist_epsilon && s_amax < dist_epsilon && s_j < dist_epsilon){
-			tc_debug_print("tpGetAccState: S-curve fail, segment too short\n");
+			tc_debug_print(RTAPI_MSG_ERR, "tpGetAccState: S-curve fail, segment too short\n");
 			return TP_ERR_FAIL;
 		}
 		
@@ -2582,13 +2582,14 @@ STATIC int tpCalculateJerkAccel(TP_STRUCT const * const tp,
 	//double maxJerk = tp->maxJerk;
 	double maxJerk = 35.0;	//hardcoded prototype
 	double maxAcc = tcGetTangentialMaxAccel(tc);
-	double maxVel = tpGetRealFinalVel(tp, tc, nexttc);
+	double maxVel = tpGetRealTargetVel(tp, tc);
 	
 	//get cycle time
 	double dt = fmax(tc->cycle_time, TP_TIME_EPSILON);
 	
     //set acceleration and jerk parameter, depending on the acceleration state
-	int accState = tpGetAccState(tc, maxJerk, maxAcc, maxVel);
+	tpGetAccState(tc, maxJerk, maxAcc, maxVel);
+	int accState = tc->accState;
 	double jerk = 0;	//system jerk limit, either zero or from tp (fixed to 35 for now)
 	
 	switch(accState){
