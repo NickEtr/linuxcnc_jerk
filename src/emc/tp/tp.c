@@ -480,6 +480,7 @@ int tpClear(TP_STRUCT * const tp)
     tp->uu_per_rev = 0.0;
     emcmotStatus->current_vel = 0.0;
     emcmotStatus->requested_vel = 0.0;
+	emcmotStatus->current_acc = 0.0;
     emcmotStatus->distance_to_go = 0.0;
     ZERO_EMC_POSE(emcmotStatus->dtg);
 
@@ -2500,20 +2501,18 @@ STATIC int tpCalculateRampAccel(TP_STRUCT const * const tp,
     return TP_ERR_OK;
 }
 
-STATIC int tpGetAccState(TC_STRUCT * const tc, double maxJerk, double maxAcc, double maxVel){
-		
-		//get current position in a segment and segment length
-		double pos = tc->progress;
-		double length = tc->target;
-		
+STATIC int tpGetSCurveSegments(TC_STRUCT * const tc, double maxJerk, double maxAcc, double maxVel){
 		
 		//failsafe
-		if (maxJerk <= 0 || maxAcc <= 0 || maxVel <= 0){
-			rtapi_print_msg(RTAPI_MSG_ERR, "tpGetAccState:Bad input: maxJerk: %.3f maxAcc: %.3f maxVel: %.3f\n", maxJerk, maxAcc, maxVel);
+		if (!tc || !maxJerk || !maxAcc || !maxVel){
+			rtapi_print_msg(RTAPI_MSG_ERR, "tpGetSCurveSegments:Bad input: maxJerk: %.3f maxAcc: %.3f maxVel: %.3f", maxJerk, maxAcc, maxVel);
 			return TP_ERR_FAIL;
 		}
 		
-		//get jerk phase time
+		//get segment length
+		double length = tc->target;
+		
+		//get jerk phase time until maxacceleration is reached
 		double dtj = maxAcc/maxJerk;
 		//get distance until reaching maxAccel at given jerk
 		// s_j = 1/6*j*t^3
@@ -2528,6 +2527,8 @@ STATIC int tpGetAccState(TC_STRUCT * const tc, double maxJerk, double maxAcc, do
 		//cruise distance at maximum velocity (assumed symmetric acceleration)
 		double s_vmax = length - (2 * (2*s_j + s_amax));
 		
+		//have to calculate deceleration time based on final velocity
+		
 		//degenerative logic for acceleration state skipping
 		double dist_epsilon = 1e-2;		//minimum change of displacement in milimeters
 		
@@ -2541,26 +2542,36 @@ STATIC int tpGetAccState(TC_STRUCT * const tc, double maxJerk, double maxAcc, do
 		}
 		
 		//S-curve segments
-		double s1 = s_j;
-		double s2 = s1 + s_amax;
-		double s3 = s2 + s_j;
-		double s4 = s3 + s_vmax;
-		double s5 = s4 + s_j;
-		double s6 = s5 + s_amax;
-		//double s7 = s6 + s_j;
+		tc->s_curve_segments[0] = s_j;
+		tc->s_curve_segments[1] = s_j + s_amax;
+		tc->s_curve_segments[2] = s_j + s_amax + s_j;
+		tc->s_curve_segments[3] = s_j + s_amax + s_j + s_vmax;
+		tc->s_curve_segments[4] = s_j + s_amax + s_j + s_vmax + s_j;
+		tc->s_curve_segments[5] = s_j + s_amax + s_j + s_vmax + s_j + s_amax;
+		//tc->s_curve_segments[7] = s_j + s_amax + s_j + s_vmax + s_j + s_amax + s_j;
 		
-		//set acceleration state relative to position in the segment
-		if(pos <= s1){			//S1 - jerk-up to max acceleration
+		return TP_ERR_OK;
+}
+
+STATIC int tpGetAccState(TC_STRUCT * const tc){
+		
+		//get current position in a segment
+		double pos = tc->progress;
+		//point to s-curve segment array
+		double *s = tc->s_curve_segments;
+		
+		//set acceleration state relative to position
+		if(pos <= s[0]){			//S1 - jerk-up to max acceleration
 			tc->accState = 0;  
-		}else if(pos <= s2){	//S2 - max acceleration
+		}else if(pos <= s[1]){	//S2 - max acceleration
 			tc->accState = 1;  
-		}else if(pos <= s3){	//S3 - jerk-down to max velocity
+		}else if(pos <= s[2]){	//S3 - jerk-down to max velocity
 			tc->accState = 2;  
-		}else if(pos <= s4){	//S4 - max velocity (cruise)
+		}else if(pos <= s[3]){	//S4 - max velocity (cruise)
 			tc->accState = 3;  
-		}else if(pos <= s5){	//S5 - jerk-down to max deceleration
+		}else if(pos <= s[4]){	//S5 - jerk-down to max deceleration
 			tc->accState = 4;
-		}else if(pos <= s6){	//S6 - max deceleration
+		}else if(pos <= s[5]){	//S6 - max deceleration
 			tc->accState = 5;			
 		}else {					//S7 - jerk-up to stopping point
 			tc->accState = 6;   
@@ -2575,44 +2586,45 @@ STATIC int tpCalculateJerkAccel(TP_STRUCT const * const tp,
         double * const acc,
         double * const vel_desired){
 	
+	if (!tc->blending_next) {
+        tc->vel_at_blend_start = tc->currentvel;
+    }
 	
 	tc_debug_print("using jerk limited acceleration\n");
-
-	//get trajectory limits
-	//double maxJerk = tp->maxJerk;
-	double maxJerk = 200.0;	//hardcoded prototype
+	
+	//get limits
 	double maxAcc = tcGetTangentialMaxAccel(tc);
-	double maxVel = tpGetRealTargetVel(tp, tc);
+	double maxVel = tp->ini_maxvel;
 	
 	//get cycle time
 	double dt = fmax(tc->cycle_time, TP_TIME_EPSILON);
 	
     //set acceleration and jerk parameter, depending on the acceleration state
-	tpGetAccState(tc, maxJerk, maxAcc, maxVel);
+	tpGetAccState(tc);
 	int accState = tc->accState;
-	double jerk = 0;	//system jerk limit, either zero or from tp (fixed to 35 for now)
 	
+	double jerk = 0;	//system jerk limit, either zero or from tc
 	switch(accState){
 		
-		case 0:		jerk = maxJerk; 	break; 	//jerk-up to max acceleration
-		case 1:		jerk = 0; 			break; 	//max acceleration
-		case 2:		jerk = -maxJerk; 	break; 	//jerk-down to max velocity
-		case 3:		jerk = 0; 			break; 	//cruise at max velocity
-		case 4:		jerk = -maxJerk; 	break; 	//jerk-up to max deceleration
-		case 5:		jerk = 0; 			break; 	//max deceleration
-		case 6:		jerk = maxJerk; 	break; 	//jerk-down to stop
-		default: 	jerk = 0; 			break;
+		case 0:		jerk = tc->maxJerk; 	break; 	//jerk-up to max acceleration
+		case 1:		jerk = 0; 				break; 	//max acceleration
+		case 2:		jerk = -(tc->maxJerk); 	break; 	//jerk-down to max velocity
+		case 3:		jerk = 0; 				break; 	//cruise at max velocity
+		case 4:		jerk = -(tc->maxJerk); 	break; 	//jerk-up to max deceleration
+		case 5:		jerk = 0; 				break; 	//max deceleration
+		case 6:		jerk = tc->maxJerk; 	break; 	//jerk-down to stop
+		default: 	jerk = 0; 				break;
 	}
 	
 	//calculate output motion parameters
-	*acc = saturate(*acc + jerk*dt, maxAcc);
+	*acc = saturate(tc->currentacc + jerk*dt, maxAcc);
+	tc->currentacc = *acc;
 	
-	*vel_desired = saturate(*vel_desired + (*acc)*dt, maxVel);
+	*vel_desired = saturate(tc->currentvel + (*acc)*dt, maxVel);
 	if(*vel_desired < 0){*vel_desired = 0;}
 	
 	//for harvesting data only
-	double distanceToGo = tcGetDistanceToGo(tc, tp->reverse_run);
-	rtapi_print_msg(RTAPI_MSG_ERR, "progress: %.3f maxAcc: %.3f maxVel: %.3f dt: %.3f accState: %d jerk: %.3f acc: %.3f velocity: %.3f\n", tc->progress, maxAcc, maxVel, dt, accState, jerk, *acc, *vel_desired);
+	rtapi_print_msg(RTAPI_MSG_ERR, "progress: %.3f maxAcc: %.3f maxVel: %.3f accState: %d jerk: %.3f acc: %.3f velocity: %.3f\n", tc->progress, maxAcc, maxVel, accState, jerk, tc->currentacc, tc->currentvel);
 	
 	return TP_ERR_OK;
 }
@@ -2735,6 +2747,7 @@ STATIC int tpUpdateMovementStatus(TP_STRUCT * const tp, TC_STRUCT const * const 
         emcmotStatus->enables_queued = emcmotStatus->enables_new;
         emcmotStatus->requested_vel = 0;
         emcmotStatus->current_vel = 0;
+		emcmotStatus->current_acc = 0;
         emcmotStatus->spindleSync = 0;
 
         emcPoseZero(&emcmotStatus->dtg);
@@ -2757,6 +2770,7 @@ STATIC int tpUpdateMovementStatus(TP_STRUCT * const tp, TC_STRUCT const * const 
     tp->execId = tc->id;
     emcmotStatus->requested_vel = tc->reqvel;
     emcmotStatus->current_vel = tc->currentvel;
+	emcmotStatus->current_acc = tc->currentacc;
 
     emcPoseSub(&tc_pos, &tp->currentPos, &emcmotStatus->dtg);
     return TP_ERR_OK;
@@ -2870,6 +2884,8 @@ STATIC int tpCompleteSegment(TP_STRUCT * const tp,
     //Velocities are by definition zero for a non-active segment
     tc->currentvel = 0.0;
     tc->term_vel = 0.0;
+	//zero out current acceleration
+	tc->currentacc = 0.0;
     //TODO make progress to match target?
     // done with this move
     if (tp->reverse_run) {
@@ -3014,7 +3030,7 @@ STATIC tp_err_t tpActivateSegment(TP_STRUCT * const tp, TC_STRUCT * const tc) {
         tp_debug_print("segment_time = %f, cutoff_time = %f, ramping\n",
                 segment_time, cutoff_time);
         tc->accel_mode = TC_ACCEL_RAMP;
-    }else{tc->accel_mode = TC_ACCEL_JERK;}
+    } else{tc->accel_mode = TC_ACCEL_JERK;}
 
     // Do at speed checks that only happen once
     int needs_atspeed = tc->atspeed ||
@@ -3067,6 +3083,19 @@ STATIC tp_err_t tpActivateSegment(TP_STRUCT * const tp, TC_STRUCT * const tc) {
 
     // Update the modal state displayed by the TP
     tp->execTag = tc->tag;
+	
+	if(tc->accel_mode == TC_ACCEL_JERK){
+		
+		double maxJerk = tc->maxJerk;
+		double maxAcc = tcGetTangentialMaxAccel(tc);
+		double maxVel = tp->ini_maxvel;
+		
+		tpGetSCurveSegments(tc, maxJerk, maxAcc, maxVel);
+		if(tpGetSCurveSegments(tc, maxJerk, maxAcc, maxVel) != TP_ERR_OK){
+			tc->accel_mode = TC_ACCEL_TRAPZ;
+		}
+		
+	}
 
     return TP_ERR_OK;
 }
@@ -3191,6 +3220,7 @@ STATIC int tpDoParabolicBlending(TP_STRUCT * const tp, TC_STRUCT * const tc,
 
     //Update velocity status based on both tc and nexttc
     emcmotStatus->current_vel = tc->currentvel + nexttc->currentvel;
+	emcmotStatus->current_acc = tc->currentacc + nexttc->currentacc;
 
     return TP_ERR_OK;
 }
@@ -3218,14 +3248,14 @@ STATIC int tpUpdateCycle(TP_STRUCT * const tp,
     int res_accel = 1;
     double acc=0, vel_desired=0;
 	
-	//use jerk limited motion first, if returns a fail, fall back to trapizoidal
-	if (tc->accel_mode = TC_ACCEL_JERK){
+	//use jerk limited motion first, if returns a fail, fall back to trapezoidal
+	if (tc->accel_mode == TC_ACCEL_JERK){
 		res_accel = tpCalculateJerkAccel(tp, tc, nexttc, &acc, &vel_desired);
 	}
 
     // If the slowdown is not too great, use velocity ramping instead of trapezoidal velocity
     // Also, don't ramp up for parabolic blends
-    if (tc->accel_mode = TC_ACCEL_RAMP && tc->term_cond == TC_TERM_COND_TANGENT) {
+    if (tc->accel_mode == TC_ACCEL_RAMP && tc->term_cond == TC_TERM_COND_TANGENT) {
         res_accel = tpCalculateRampAccel(tp, tc, nexttc, &acc, &vel_desired);
     }else{res_accel = tpCalculateJerkAccel(tp, tc, nexttc, &acc, &vel_desired);}
 
@@ -3269,6 +3299,7 @@ STATIC int tpUpdateInitialStatus(TP_STRUCT const * const tp) {
     emcmotStatus->requested_vel = 0.0;
     //FIXME test if we can do this safely
     emcmotStatus->current_vel = 0.0;
+	emcmotStatus->current_acc = 0.0;
     return TP_ERR_OK;
 }
 
