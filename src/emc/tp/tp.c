@@ -2501,67 +2501,118 @@ STATIC int tpCalculateRampAccel(TP_STRUCT const * const tp,
     return TP_ERR_OK;
 }
 
-STATIC int tpGetSCurveSegments(TC_STRUCT * const tc, double maxJerk, double maxAcc, double maxVel){
-		
+STATIC int tpGetSCurveSegments(TC_STRUCT * const tc, double initialacc, double initialvel, double maxJerk, double maxAcc, double maxVel){
+	
 		//failsafe
 		if (!tc || !maxJerk || !maxAcc || !maxVel){
-			rtapi_print_msg(RTAPI_MSG_ERR, "tpGetSCurveSegments:Bad input: maxJerk: %.3f maxAcc: %.3f maxVel: %.3f", maxJerk, maxAcc, maxVel);
+			rtapi_print_msg(RTAPI_MSG_ERR, "tpGetSCurveSegments:Bad input: initialacc: %.3f initialvel: %.3f maxJerk: %.3f maxAcc: %.3f maxVel: %.3f", initialacc, initialvel, maxJerk, maxAcc, maxVel);
 			return TP_ERR_FAIL;
 		}
 		
-		//get segment length
+		//get segment data
 		double length = tc->target;
+		double *s = tc->s_curve_segments;
+		double finalvel = tc->finalvel;
 		
-		//get jerk phase time until maxacceleration is reached
-		double dtj = maxAcc/maxJerk;
-		//get distance until reaching maxAccel at given jerk
-		// s_j = 1/6*j*t^3
-		double s_j = (1.0/6.0)*maxJerk*(dtj*dtj*dtj);
-		//velocity at the end of jerk-up and time until reaching max velocity
-		// v_j = 1/2*a*t^2
-		// dta = (v-2*v_j)/a
-		double v_j = (1.0/2.0)*maxAcc*(dtj*dtj);
-		double dta = (maxVel-2*v_j)/maxAcc;
-		//segment length of flat acceleration
-		double s_amax = (1.0/2.0)*maxAcc*(dta*dta);
-		//cruise distance at maximum velocity (assumed symmetric acceleration)
-		double s_vmax = length - (2 * (2*s_j + s_amax));
 		
-		//have to calculate deceleration time based on final velocity
+		//S1 - jerk-up
+		//time to reach max acceleration at jerk-up, factoring in initial acceleration
+		double dt_j1 = (maxAcc - initialacc)/maxJerk;
+		//velocity gained during first jerk-up
+		double v_j1 = initialvel + initialacc*dt_j1 + (1.0/2.0)*maxJerk*(dt_j1*dt_j1);
+		//distance at jerk-up to max acceleration
+		double s_j1 = initialvel*dt_j1 + (1.0/2.0)*initialacc*(dt_j1*dt_j1) + (1.0/6.0)*maxJerk*(dt_j1*dt_j1*dt_j1);
+		
+		
+		//S2 - max acceleration
+		//velocity that will be gained in S3
+		double dv_j3 = (1.0/2.0)*maxAcc*maxAcc/maxJerk;
+		//remaining velocity to gain during S2
+		double dv_j2 = maxVel - v_j1 - dv_j3;
+		//safety check, if dv somehow goes negative, make sure time does not go negative
+		if(dv_j2 < 0) {dv_j2 = 0;}
+		//time needed to gain this velocity at constant acceleration
+		double dt_j2 = dv_j2/maxAcc;
+		//velocity at the end of S2
+		double v_j2 = v_j1 + maxAcc*dt_j2;
+		//distance at max acceleration
+		double s_j2 = v_j1*dt_j2 + (1.0/2.0)*maxAcc*(dt_j2*dt_j2);
+		
+		
+		//S3 - jerk-down to max velocity
+		//time to go from max acceleration to zero acceleration
+		double dt_j3 = maxAcc/maxJerk;
+		//velocity at the end of S3 (should be max velocity?)
+		double v_j3 = v_j2 + maxAcc*dt_j3 - (1.0/2.0)*maxJerk*(dt_j3*dt_j3);
+		//distance at jerk-down to zero acceleration/max velocity
+		double s_j3 = v_j2*dt_j3 + (1.0/2.0)*maxAcc*(dt_j3*dt_j3) - (1.0/6.0)*maxJerk*(dt_j3*dt_j3*dt_j3);
+		
+		
+		//S5 - jerk-down to max deceleration
+		//time to go from cruise to max deceleration
+		double dt_j5 = maxAcc/maxJerk;
+		//distance at jerk-down to max deceleration
+		double s_j5 = maxVel*dt_j5 - (1.0/2.0)*maxAcc*(dt_j5*dt_j5) + (1.0/6.0)*maxJerk*(dt_j5*dt_j5*dt_j5);
+		
+		
+		//S6 - max deceleration
+		//velocity lost during last jerk-up
+		double dv_j7 = (1.0/2.0)*maxAcc*maxAcc/maxJerk;
+		//safety check, if dv somehow goes negative, make sure time does not go negative
+		if(dv_j7 < 0) {dv_j7 = 0;}
+		//velocity before final jerk-down
+		double v_j6 = finalvel + dv_j7;
+		//time needed to drop velocity during max deceleration
+		double dt_j6 = (maxVel - v_j6)/maxAcc;
+		//distance at max deceleration
+		double s_j6 = v_j6*dt_j6 - (1.0/2.0)*maxAcc*(dt_j6*dt_j6);
+		
+		
+		//S7 - jerk-up to blend velocity
+		//time needed for the last jerk-up
+		double dt_j7 = maxAcc/maxJerk;
+		//distance at final jerk-up to blend velocity
+		double s_j7 = finalvel*dt_j7 - (1.0/2.0)*maxAcc*(dt_j7*dt_j7) - (1.0/6.0)*maxJerk*(dt_j7*dt_j7*dt_j7);
+
+
+		//S4 - constant velocity mode (cruise)
+		double s_j4 = length - (s_j1 + s_j2 + s_j3 + s_j5 + s_j6 + s_j7);
+		
 		
 		//degenerative logic for acceleration state skipping
 		double dist_epsilon = 1e-2;		//minimum change of displacement in milimeters
 		
-		if(s_vmax < dist_epsilon){s_vmax = 0;} //if distance is too small, considered as zero
-		if(s_vmax < dist_epsilon && s_amax < dist_epsilon){s_vmax = 0; s_amax = 0;}
+		if(s_j4 < dist_epsilon){s_j4 = 0;} //if distance is too small, considered as zero
+		if(s_j2 < dist_epsilon){s_j2 = 0;} 
+		if(s_j6 < dist_epsilon){s_j6 = 0;}
 		
 		//if all distances are too small, return an error, fall back to trapizoidal
-		if(s_vmax < dist_epsilon && s_amax < dist_epsilon && s_j < dist_epsilon){
+		if(s_j1 < dist_epsilon && s_j2 < dist_epsilon && s_j3 < dist_epsilon && s_j4 < dist_epsilon && s_j5 < dist_epsilon && s_j6 < dist_epsilon && s_j7 < dist_epsilon){
 			tc_debug_print(RTAPI_MSG_ERR, "tpGetAccState: S-curve fail, segment too short\n");
 			return TP_ERR_FAIL;
 		}
 		
-		//S-curve segments
-		tc->s_curve_segments[0] = s_j;
-		tc->s_curve_segments[1] = s_j + s_amax;
-		tc->s_curve_segments[2] = s_j + s_amax + s_j;
-		tc->s_curve_segments[3] = s_j + s_amax + s_j + s_vmax;
-		tc->s_curve_segments[4] = s_j + s_amax + s_j + s_vmax + s_j;
-		tc->s_curve_segments[5] = s_j + s_amax + s_j + s_vmax + s_j + s_amax;
-		//tc->s_curve_segments[7] = s_j + s_amax + s_j + s_vmax + s_j + s_amax + s_j;
+		//store S-curve segments
+		s[0] = s_j1;
+		s[1] = s_j1 + s_j2;
+		s[2] = s_j1 + s_j2 + s_j3;
+		s[3] = s_j1 + s_j2 + s_j3 + s_j4;
+		s[4] = s_j1 + s_j2 + s_j3 + s_j4 + s_j5;
+		s[5] = s_j1 + s_j2 + s_j3 + s_j4 + s_j5 + s_j6;
+		s[6] = s_j1 + s_j2 + s_j3 + s_j4 + s_j5 + s_j6 + s_j7;
 		
 		return TP_ERR_OK;
+	
 }
 
 STATIC int tpGetAccState(TC_STRUCT * const tc){
 		
-		//get current position in a segment
+		//get segment data
 		double pos = tc->progress;
-		//point to s-curve segment array
 		double *s = tc->s_curve_segments;
 		
 		//set acceleration state relative to position
-		if(pos <= s[0]){			//S1 - jerk-up to max acceleration
+		if(pos <= s[0]){		//S1 - jerk-up to max acceleration
 			tc->accState = 0;  
 		}else if(pos <= s[1]){	//S2 - max acceleration
 			tc->accState = 1;  
@@ -2586,18 +2637,18 @@ STATIC int tpCalculateJerkAccel(TP_STRUCT const * const tp,
         double * const acc,
         double * const vel_desired){
 	
-	if (!tc->blending_next) {
-        tc->vel_at_blend_start = tc->currentvel;
-    }
-	
 	tc_debug_print("using jerk limited acceleration\n");
-	
-	//get limits
-	double maxAcc = tcGetTangentialMaxAccel(tc);
-	double maxVel = tp->ini_maxvel;
 	
 	//get cycle time
 	double dt = fmax(tc->cycle_time, TP_TIME_EPSILON);
+	
+	//get limits
+	double maxJerk = tc->maxJerk;
+	double maxAcc = tcGetTangentialMaxAccel(tc);
+	double maxVel = tpGetRealTargetVel(tp, tc);
+	
+	//compute final velocity
+	double vel_final = tpGetRealFinalVel(tp, tc, nexttc);
 	
     //set acceleration and jerk parameter, depending on the acceleration state
 	tpGetAccState(tc);
@@ -2606,14 +2657,14 @@ STATIC int tpCalculateJerkAccel(TP_STRUCT const * const tp,
 	double jerk = 0;	//system jerk limit, either zero or from tc
 	switch(accState){
 		
-		case 0:		jerk = tc->maxJerk; 	break; 	//jerk-up to max acceleration
-		case 1:		jerk = 0; 				break; 	//max acceleration
-		case 2:		jerk = -(tc->maxJerk); 	break; 	//jerk-down to max velocity
-		case 3:		jerk = 0; 				break; 	//cruise at max velocity
-		case 4:		jerk = -(tc->maxJerk); 	break; 	//jerk-up to max deceleration
-		case 5:		jerk = 0; 				break; 	//max deceleration
-		case 6:		jerk = tc->maxJerk; 	break; 	//jerk-down to stop
-		default: 	jerk = 0; 				break;
+		case 0:		jerk = maxJerk; 	break; 	//jerk-up to max acceleration
+		case 1:		jerk = 0; 			break; 	//max acceleration
+		case 2:		jerk = -(maxJerk); 	break; 	//jerk-down to max velocity
+		case 3:		jerk = 0; 			break; 	//cruise at max velocity
+		case 4:		jerk = -(maxJerk); 	break; 	//jerk-down to max deceleration
+		case 5:		jerk = 0; 			break; 	//max deceleration
+		case 6:		jerk = maxJerk; 	break; 	//jerk-up to blending velocity/stop
+		default: 	jerk = 0; 			break;	//if somehow fails, let jerk be 0
 	}
 	
 	//calculate output motion parameters
@@ -3084,19 +3135,26 @@ STATIC tp_err_t tpActivateSegment(TP_STRUCT * const tp, TC_STRUCT * const tc) {
     // Update the modal state displayed by the TP
     tp->execTag = tc->tag;
 	
+	double maxJerk = 40;	//hardcoded jerk value, initialize it once at the start of the segment
+	tc->maxJerk = maxJerk;	//store it for easy use
+	
 	if(tc->accel_mode == TC_ACCEL_JERK){
 		
-		double maxJerk = tc->maxJerk;
+		//get limits
 		double maxAcc = tcGetTangentialMaxAccel(tc);
-		double maxVel = tp->ini_maxvel;
+		double maxVel = tpGetRealTargetVel(tp, tc);
 		
-		tpGetSCurveSegments(tc, maxJerk, maxAcc, maxVel);
-		if(tpGetSCurveSegments(tc, maxJerk, maxAcc, maxVel) != TP_ERR_OK){
-			tc->accel_mode = TC_ACCEL_TRAPZ;
-		}
+		//get initial velocity and acceleration from the previous segment
+		double initialacc = tc->currentacc;
+		tc->initialacc = initialacc;
+		
+		double initialvel = tc->currentvel;
+		tc->initialvel = initialvel;
+		
+		tpGetSCurveSegments(tc, initialacc, initialvel, maxJerk, maxAcc, maxVel);
+		
 		
 	}
-
     return TP_ERR_OK;
 }
 
