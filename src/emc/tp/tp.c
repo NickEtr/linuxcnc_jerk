@@ -2654,6 +2654,7 @@ STATIC int tpCalculateJerkAccel(TP_STRUCT const * const tp,
 	
 	//compute final velocity
 	double vel_final = tpGetRealFinalVel(tp, tc, nexttc);
+	tc->finalvel = vel_final;
 	
     //set acceleration and jerk parameter, depending on the acceleration state
 	tpGetAccState(tc);
@@ -2676,7 +2677,7 @@ STATIC int tpCalculateJerkAccel(TP_STRUCT const * const tp,
 	*acc = saturate(tc->currentacc + jerk*dt, maxAcc);
 	tc->currentacc = *acc;
 	
-	*vel_desired = saturate(tc->currentvel + (*acc)*dt, maxVel);
+	*vel_desired = saturate(tc->currentvel + tc->currentacc*dt + (1.0/2.0)jerk*dt*dt, maxVel);
 	if(*vel_desired < 0){*vel_desired = 0;}
 	
 	//for harvesting data only
