@@ -133,9 +133,9 @@ typedef struct {
     double term_vel;        // actual velocity at termination of segment
 	double initialvel;		//initial velocity, calculated at every segment activation from currentvel
 	
-    double kink_vel;        // Temporary way to store our calculation of maximum velocity we can handle if this segment is declared tangent with the next
-    double kink_accel_reduce_prev; // How much to reduce the allowed tangential acceleration to account for the extra acceleration at an approximate tangent intersection.
-    double kink_accel_reduce; // How much to reduce the allowed tangential acceleration to account for the extra acceleration at an approximate tangent intersection.
+    double kink_vel;        		// Temporary way to store our calculation of maximum velocity we can handle if this segment is declared tangent with the next
+    double kink_accel_reduce_prev; 	// How much to reduce the allowed tangential acceleration to account for the extra acceleration at an approximate tangent intersection.
+    double kink_accel_reduce; 		// How much to reduce the allowed tangential acceleration to account for the extra acceleration at an approximate tangent intersection.
 
     //Acceleration
     double maxaccel;        // accel calc'd by task
@@ -145,7 +145,7 @@ typedef struct {
 	
 	//Jerk
 	double maxJerk; 			//for now, hardcoded jerk parameter, later should be gatherred from ini file
-	double s_curve_segments[6];	//segments of an s-curve are stored here once per full segment
+	double s_curve_segments[7];	//segments of an s-curve are stored here once per full segment
 	int accState;				//state of an S-curve profile
     
     int id;                 // segment's serial number

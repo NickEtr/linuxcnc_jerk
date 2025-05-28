@@ -2501,8 +2501,13 @@ STATIC int tpCalculateRampAccel(TP_STRUCT const * const tp,
     return TP_ERR_OK;
 }
 
-STATIC int tpGetSCurveSegments(TC_STRUCT * const tc, double initialacc, double initialvel, double maxJerk, double maxAcc, double maxVel){
-	
+STATIC int tpGetSCurveSegments(TC_STRUCT * const tc, 
+								double initialacc, 
+								double initialvel, 
+								double maxJerk, 
+								double maxAcc, 
+								double maxVel){
+									
 		//failsafe
 		if (!tc || !maxJerk || !maxAcc || !maxVel){
 			rtapi_print_msg(RTAPI_MSG_ERR, "tpGetSCurveSegments:Bad input: initialacc: %.3f initialvel: %.3f maxJerk: %.3f maxAcc: %.3f maxVel: %.3f", initialacc, initialvel, maxJerk, maxAcc, maxVel);
